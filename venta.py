@@ -22,6 +22,8 @@ from PySide6.QtCore import Qt
 from db import conectar
 from productos import listar_productos, buscar_por_codigo_barra, obtener_producto, DialogoProducto
 from arqueo import sesion_abierta
+from fiado import DialogoSeleccionarCliente
+from tiempo import ahora_texto
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +207,7 @@ class PantallaVenta(QWidget):
         columna_derecha.addWidget(self.etiqueta_total)
 
         self.combo_pago = QComboBox()
-        self.combo_pago.addItems(["efectivo", "debito", "credito", "transferencia"])
+        self.combo_pago.addItems(["efectivo", "debito", "credito", "transferencia", "fiado"])
         columna_derecha.addWidget(self.combo_pago)
 
         boton_cobrar = QPushButton("Cobrar")
@@ -366,11 +368,20 @@ class PantallaVenta(QWidget):
         metodo_pago = self.combo_pago.currentText()
         sesion_id = sesion["id"]
 
+        # si es fiado, hay que saber a nombre de quién queda la deuda antes
+        # de guardar nada -- si cancela el diálogo, se aborta el cobro
+        cliente_id = None
+        if metodo_pago == "fiado":
+            dialogo_cliente = DialogoSeleccionarCliente(self)
+            if dialogo_cliente.exec() != QDialog.Accepted:
+                return
+            cliente_id = dialogo_cliente.cliente_id
+
         with conectar() as con:
             cursor_venta = con.execute(
-                """INSERT INTO ventas (caja_sesion_id, origen, total, metodo_pago)
-                   VALUES (?, ?, ?, ?)""",
-                (sesion_id, origen, total, metodo_pago),
+                """INSERT INTO ventas (caja_sesion_id, fecha_hora, origen, total, metodo_pago, cliente_id)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (sesion_id, ahora_texto(), origen, total, metodo_pago, cliente_id),
             )
             venta_id = cursor_venta.lastrowid
 

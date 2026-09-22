@@ -32,8 +32,15 @@ RUTA_BASE_DATOS = os.path.join(CARPETA_DATOS, "pos.db")
 # Carpeta donde se guardan los respaldos automáticos/manuales
 CARPETA_BACKUPS = os.path.join(CARPETA_BASE, "backups")
 
+# Nombre de la app (marca), independiente del nombre del negocio que la usa
+NOMBRE_APP = "POS by Hadar"
+
 # Nombre del negocio (se puede usar en tickets, títulos de ventana, etc.)
 NOMBRE_NEGOCIO = "Negocio"
+
+# Color de acento de la marca Hadar (mismo azul aciano que Hadar Analytics),
+# centralizado acá para no repetir el hex en cada archivo de interfaz
+COLOR_ACENTO_HADAR = "#6366F1"
 
 
 def asegurar_carpetas():

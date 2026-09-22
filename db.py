@@ -2,9 +2,9 @@
 Capa de base de datos del POS.
 
 Todo lo que toca SQLite directamente vive acá. El resto de los módulos
-(productos.py, venta.py, caja_vecina.py, arqueo.py) usan estas funciones
-en vez de escribir SQL por su cuenta, para que si algún día cambia el
-motor de base de datos, solo haya que tocar este archivo.
+(productos.py, venta.py, caja_vecina.py, arqueo.py, fiado.py) usan estas
+funciones en vez de escribir SQL por su cuenta, para que si algún día
+cambia el motor de base de datos, solo haya que tocar este archivo.
 """
 
 import sqlite3
@@ -78,6 +78,9 @@ CREATE TABLE IF NOT EXISTS caja_sesion (
 );
 
 -- Encabezado de cada venta
+-- NOTA: metodo_pago incluye 'fiado' y cliente_id fue agregado por migración
+-- (ver _migrar_ventas_agregar_fiado más abajo) porque la tabla ya existía
+-- en instalaciones previas y SQLite no permite modificar un CHECK con ALTER.
 CREATE TABLE IF NOT EXISTS ventas (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     caja_sesion_id  INTEGER NOT NULL REFERENCES caja_sesion(id),
@@ -87,8 +90,9 @@ CREATE TABLE IF NOT EXISTS ventas (
                         CHECK (origen IN ('venta_negocio', 'caja_vecina')),
     total           REAL NOT NULL DEFAULT 0,
     metodo_pago     TEXT NOT NULL DEFAULT 'efectivo'
-                        CHECK (metodo_pago IN ('efectivo', 'debito', 'credito', 'transferencia')),
-    anulada         INTEGER NOT NULL DEFAULT 0
+                        CHECK (metodo_pago IN ('efectivo', 'debito', 'credito', 'transferencia', 'fiado')),
+    anulada         INTEGER NOT NULL DEFAULT 0,
+    cliente_id      INTEGER REFERENCES clientes(id)  -- NULL salvo que metodo_pago = 'fiado'
 );
 
 -- Detalle línea por línea de cada venta
@@ -115,20 +119,116 @@ CREATE TABLE IF NOT EXISTS movimientos_caja_vecina (
     descripcion     TEXT
 );
 
+-- Clientes a los que se les fía
+CREATE TABLE IF NOT EXISTS clientes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre          TEXT NOT NULL,
+    telefono        TEXT,
+    notas           TEXT,
+    activo          INTEGER NOT NULL DEFAULT 1,
+    creado_en       TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- Abonos (pagos) que un cliente hace contra su deuda acumulada de fiado.
+-- No se descuentan de una venta puntual: se restan del total adeudado
+-- (suma de ventas 'fiado' de ese cliente).
+CREATE TABLE IF NOT EXISTS abonos_fiado (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    cliente_id      INTEGER NOT NULL REFERENCES clientes(id),
+    -- sesión de caja en la que se recibió el abono: como es plata real que
+    -- entra, arqueo.py debería sumarla al efectivo contado de esa sesión
+    caja_sesion_id  INTEGER NOT NULL REFERENCES caja_sesion(id),
+    fecha_hora      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    monto           REAL NOT NULL,
+    nota            TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_ventas_caja_sesion ON ventas(caja_sesion_id);
+CREATE INDEX IF NOT EXISTS idx_ventas_cliente ON ventas(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_detalle_venta_venta ON detalle_venta(venta_id);
 CREATE INDEX IF NOT EXISTS idx_movimientos_caja_sesion ON movimientos_caja_vecina(caja_sesion_id);
 CREATE INDEX IF NOT EXISTS idx_productos_activo ON productos(activo);
+CREATE INDEX IF NOT EXISTS idx_abonos_cliente ON abonos_fiado(cliente_id);
+
+-- Fila única con la corrección manual de hora (ver tiempo.py / ajustes.py).
+-- El CHECK (id = 1) obliga a que exista como máximo una fila.
+CREATE TABLE IF NOT EXISTS configuracion_reloj (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    desfase_segundos    INTEGER NOT NULL DEFAULT 0
+);
 """
+
+
+def _migrar_ventas_agregar_fiado(con):
+    """
+    Instalaciones que ya tenían la tabla `ventas` de antes del fiado no
+    tienen la columna cliente_id ni 'fiado' en el CHECK de metodo_pago.
+    SQLite permite agregar columnas con ALTER TABLE, pero no modificar un
+    CHECK existente -- para eso hay que reconstruir la tabla.
+
+    Esta función es segura de llamar siempre: si ya está migrada, no hace
+    nada. Si la tabla ventas se acaba de crear con el ESQUEMA de arriba
+    (instalación nueva), tampoco hace nada porque ya viene con todo.
+    """
+    fila = con.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='ventas'"
+    ).fetchone()
+    if fila is None or "'fiado'" in fila["sql"]:
+        return  # no existe todavía (se creará con el esquema nuevo) o ya migrada
+
+    con.execute("PRAGMA foreign_keys = OFF")
+    con.executescript("""
+        ALTER TABLE ventas RENAME TO ventas_old;
+
+        CREATE TABLE ventas (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            caja_sesion_id  INTEGER NOT NULL REFERENCES caja_sesion(id),
+            fecha_hora      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            origen          TEXT NOT NULL DEFAULT 'venta_negocio'
+                                CHECK (origen IN ('venta_negocio', 'caja_vecina')),
+            total           REAL NOT NULL DEFAULT 0,
+            metodo_pago     TEXT NOT NULL DEFAULT 'efectivo'
+                                CHECK (metodo_pago IN ('efectivo', 'debito', 'credito', 'transferencia', 'fiado')),
+            anulada         INTEGER NOT NULL DEFAULT 0,
+            cliente_id      INTEGER REFERENCES clientes(id)
+        );
+
+        INSERT INTO ventas (id, caja_sesion_id, fecha_hora, origen, total, metodo_pago, anulada, cliente_id)
+            SELECT id, caja_sesion_id, fecha_hora, origen, total, metodo_pago, anulada, NULL
+            FROM ventas_old;
+
+        DROP TABLE ventas_old;
+
+        CREATE INDEX IF NOT EXISTS idx_ventas_caja_sesion ON ventas(caja_sesion_id);
+        CREATE INDEX IF NOT EXISTS idx_ventas_cliente ON ventas(cliente_id);
+    """)
+    con.execute("PRAGMA foreign_keys = ON")
 
 
 def inicializar_base_datos():
     """
-    Crea todas las tablas si no existen. Se puede llamar cada vez que
-    arranca el programa sin problema (CREATE TABLE IF NOT EXISTS es seguro).
+    Crea todas las tablas si no existen, y corre las migraciones necesarias
+    sobre tablas que ya existían de versiones anteriores del POS.
+    Se puede llamar cada vez que arranca el programa sin problema.
     """
     with conectar() as con:
+        # las tablas nuevas (clientes, abonos_fiado) deben existir antes de
+        # migrar ventas, porque ventas.cliente_id las referencia
+        con.executescript("""
+            CREATE TABLE IF NOT EXISTS clientes (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre          TEXT NOT NULL,
+                telefono        TEXT,
+                notas           TEXT,
+                activo          INTEGER NOT NULL DEFAULT 1,
+                creado_en       TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+        """)
+        _migrar_ventas_agregar_fiado(con)
         con.executescript(ESQUEMA)
+        con.execute(
+            "INSERT OR IGNORE INTO configuracion_reloj (id, desfase_segundos) VALUES (1, 0)"
+        )
 
 
 if __name__ == "__main__":
