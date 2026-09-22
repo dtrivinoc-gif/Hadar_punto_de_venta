@@ -1,0 +1,390 @@
+"""
+Pantalla principal de venta.
+
+Es la pantalla que usa la cajera todo el día: una grilla de botones con
+los productos (agrupados por categoría en pestañas), un carrito a la
+derecha, y botones para cobrar. Incluye:
+
+  - Botón "Otro" para venta libre (algo que no está catalogado todavía)
+  - Selector de origen: venta del negocio o caja vecina
+  - Precio variable: si el producto es tipo 'variable' o 'peso', pide el
+    monto/cantidad en un diálogo antes de agregarlo al carrito
+"""
+
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton, QLabel,
+    QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView,
+    QDialog, QFormLayout, QLineEdit, QDoubleSpinBox, QMessageBox, QComboBox,
+    QGroupBox, QCheckBox,
+)
+from PySide6.QtCore import Qt
+
+from db import conectar
+from productos import listar_productos, buscar_por_codigo_barra, obtener_producto, DialogoProducto
+from arqueo import sesion_abierta
+
+
+# ---------------------------------------------------------------------------
+# Diálogo para precio variable / por peso
+# ---------------------------------------------------------------------------
+
+class DialogoPrecioVariable(QDialog):
+    """Se abre cuando el producto es de tipo 'variable' o 'peso': pide el
+    monto o la cantidad antes de agregarlo al carrito."""
+
+    def __init__(self, parent, nombre_producto: str, tipo_venta: str, precio_referencia: float):
+        super().__init__(parent)
+        self.tipo_venta = tipo_venta
+        self.setWindowTitle(nombre_producto)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        if tipo_venta == "variable":
+            self.campo = QDoubleSpinBox()
+            self.campo.setMaximum(1_000_000)
+            self.campo.setDecimals(0)
+            self.campo.setPrefix("$ ")
+            self.campo.setValue(precio_referencia)
+            form.addRow("Monto a cobrar", self.campo)
+        else:  # 'peso'
+            self.campo = QDoubleSpinBox()
+            self.campo.setMaximum(1000)
+            self.campo.setDecimals(3)
+            self.campo.setSuffix(" kg")
+            form.addRow("Peso", self.campo)
+            self.precio_por_kilo = precio_referencia
+            self.etiqueta_total = QLabel("$ 0")
+            form.addRow("Total", self.etiqueta_total)
+            self.campo.valueChanged.connect(self._actualizar_total)
+
+        layout.addLayout(form)
+
+        botones = QHBoxLayout()
+        boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.clicked.connect(self.reject)
+        boton_ok = QPushButton("Agregar")
+        boton_ok.setDefault(True)
+        boton_ok.clicked.connect(self.accept)
+        botones.addWidget(boton_cancelar)
+        botones.addWidget(boton_ok)
+        layout.addLayout(botones)
+
+    def _actualizar_total(self, valor):
+        self.etiqueta_total.setText(f"$ {valor * self.precio_por_kilo:,.0f}")
+
+    def resultado(self):
+        """Devuelve (cantidad, precio_unitario, subtotal) según el tipo."""
+        if self.tipo_venta == "variable":
+            monto = self.campo.value()
+            return 1, monto, monto
+        else:
+            kilos = self.campo.value()
+            subtotal = kilos * self.precio_por_kilo
+            return kilos, self.precio_por_kilo, subtotal
+
+
+# ---------------------------------------------------------------------------
+# Diálogo de venta libre (producto no catalogado)
+# ---------------------------------------------------------------------------
+
+class DialogoVentaLibre(QDialog):
+    """Para vender algo que todavía no está en el catálogo (ej. el dueño
+    trajo juguetes nuevos esta mañana). Queda marcado como venta libre para
+    que después se revise y, si corresponde, se agregue al catálogo."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Venta libre (no catalogado)")
+        self.setMinimumWidth(320)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.campo_nombre = QLineEdit()
+        self.campo_nombre.setPlaceholderText("Ej: Auto de juguete")
+        form.addRow("¿Qué es?", self.campo_nombre)
+
+        self.campo_precio = QDoubleSpinBox()
+        self.campo_precio.setMaximum(1_000_000)
+        self.campo_precio.setDecimals(0)
+        self.campo_precio.setPrefix("$ ")
+        form.addRow("Precio", self.campo_precio)
+
+        layout.addLayout(form)
+
+        botones = QHBoxLayout()
+        boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.clicked.connect(self.reject)
+        boton_ok = QPushButton("Agregar")
+        boton_ok.setDefault(True)
+        boton_ok.clicked.connect(self._validar_y_aceptar)
+        botones.addWidget(boton_cancelar)
+        botones.addWidget(boton_ok)
+        layout.addLayout(botones)
+
+    def _validar_y_aceptar(self):
+        if not self.campo_nombre.text().strip():
+            QMessageBox.warning(self, "Falta el nombre", "Escribe qué se está vendiendo.")
+            return
+        self.accept()
+
+    def resultado(self):
+        return self.campo_nombre.text().strip(), self.campo_precio.value()
+
+
+# ---------------------------------------------------------------------------
+# Pantalla principal
+# ---------------------------------------------------------------------------
+
+class PantallaVenta(QWidget):
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.carrito = []  # lista de dicts: producto_id, nombre, cantidad, precio_unitario, subtotal, es_venta_libre
+        self._armar_ui()
+        self.recargar_grilla()
+        self.campo_escaner.setFocus()
+
+    # -- construcción de la interfaz -----------------------------------
+
+    def _armar_ui(self):
+        layout_principal = QHBoxLayout(self)
+
+        # --- columna izquierda: escaneo + grilla de productos por categoría ---
+        columna_izquierda = QVBoxLayout()
+
+        fila_escaner = QHBoxLayout()
+        self.campo_escaner = QLineEdit()
+        self.campo_escaner.setPlaceholderText("Escanea el código de barra aquí…")
+        self.campo_escaner.setMinimumHeight(40)
+        self.campo_escaner.returnPressed.connect(self._procesar_escaneo)
+        fila_escaner.addWidget(self.campo_escaner, stretch=1)
+
+        self.checkbox_modo_consulta = QCheckBox("Solo consultar precio")
+        self.checkbox_modo_consulta.setToolTip(
+            "Si está activo, escanear muestra el precio pero no agrega al carrito."
+        )
+        fila_escaner.addWidget(self.checkbox_modo_consulta)
+
+        columna_izquierda.addLayout(fila_escaner)
+
+        self.tabs_categorias = QTabWidget()
+        columna_izquierda.addWidget(self.tabs_categorias, stretch=1)
+
+        boton_venta_libre = QPushButton("+ Otro (no catalogado)")
+        boton_venta_libre.setMinimumHeight(48)
+        boton_venta_libre.clicked.connect(self._abrir_venta_libre)
+        columna_izquierda.addWidget(boton_venta_libre)
+
+        layout_principal.addLayout(columna_izquierda, stretch=2)
+
+        # --- columna derecha: carrito + cobro ---
+        columna_derecha = QVBoxLayout()
+
+        grupo_origen = QGroupBox("Caja")
+        layout_origen = QHBoxLayout(grupo_origen)
+        self.combo_origen = QComboBox()
+        self.combo_origen.addItem("Venta del negocio", userData="venta_negocio")
+        self.combo_origen.addItem("Caja vecina", userData="caja_vecina")
+        layout_origen.addWidget(self.combo_origen)
+        columna_derecha.addWidget(grupo_origen)
+
+        self.tabla_carrito = QTableWidget(0, 4)
+        self.tabla_carrito.setHorizontalHeaderLabels(["Producto", "Cant.", "Precio", "Subtotal"])
+        self.tabla_carrito.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tabla_carrito.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tabla_carrito.setSelectionBehavior(QTableWidget.SelectRows)
+        columna_derecha.addWidget(self.tabla_carrito, stretch=1)
+
+        boton_quitar = QPushButton("Quitar seleccionado")
+        boton_quitar.clicked.connect(self._quitar_del_carrito)
+        columna_derecha.addWidget(boton_quitar)
+
+        self.etiqueta_total = QLabel("Total: $ 0")
+        self.etiqueta_total.setStyleSheet("font-size: 22px; font-weight: bold;")
+        self.etiqueta_total.setAlignment(Qt.AlignRight)
+        columna_derecha.addWidget(self.etiqueta_total)
+
+        self.combo_pago = QComboBox()
+        self.combo_pago.addItems(["efectivo", "debito", "credito", "transferencia"])
+        columna_derecha.addWidget(self.combo_pago)
+
+        boton_cobrar = QPushButton("Cobrar")
+        boton_cobrar.setMinimumHeight(56)
+        boton_cobrar.setStyleSheet("font-size: 18px; font-weight: bold;")
+        boton_cobrar.clicked.connect(self._confirmar_venta)
+        columna_derecha.addWidget(boton_cobrar)
+
+        layout_principal.addLayout(columna_derecha, stretch=1)
+
+    # -- grilla de productos ---------------------------------------------
+
+    def recargar_grilla(self):
+        """Reconstruye las pestañas y botones según el catálogo actual.
+        Se llama al abrir la pantalla y cada vez que cambia el catálogo
+        (conectar productos_cambiaron a este método desde la ventana principal)."""
+        self.tabs_categorias.clear()
+        productos = listar_productos(solo_activos=True)
+
+        por_categoria = {}
+        for producto in productos:
+            por_categoria.setdefault(producto["categoria"], []).append(producto)
+
+        for categoria, lista_productos in por_categoria.items():
+            self.tabs_categorias.addTab(self._crear_pestana(lista_productos), categoria)
+
+    def _crear_pestana(self, lista_productos):
+        contenedor = QWidget()
+        grilla = QGridLayout(contenedor)
+        columnas = 4
+        for indice, producto in enumerate(lista_productos):
+            boton = QPushButton(f"{producto['nombre']}\n$ {producto['precio']:,.0f}")
+            boton.setMinimumSize(120, 70)
+            boton.clicked.connect(lambda _checked=False, p=producto: self._click_producto(p))
+            grilla.addWidget(boton, indice // columnas, indice % columnas)
+
+        scroll = QScrollArea()
+        scroll.setWidget(contenedor)
+        scroll.setWidgetResizable(True)
+        return scroll
+
+    # -- lógica del carrito -----------------------------------------------
+
+    def _click_producto(self, producto):
+        if producto["tipo_venta"] in ("variable", "peso"):
+            dialogo = DialogoPrecioVariable(
+                self, producto["nombre"], producto["tipo_venta"], producto["precio"]
+            )
+            if dialogo.exec() != QDialog.Accepted:
+                return
+            cantidad, precio_unitario, subtotal = dialogo.resultado()
+        else:
+            cantidad, precio_unitario, subtotal = 1, producto["precio"], producto["precio"]
+
+        self.carrito.append({
+            "producto_id": producto["id"],
+            "nombre": producto["nombre"],
+            "cantidad": cantidad,
+            "precio_unitario": precio_unitario,
+            "subtotal": subtotal,
+            "es_venta_libre": 0,
+        })
+        self._refrescar_carrito()
+
+    def _procesar_escaneo(self):
+        """Se llama cuando la pistola (o el teclado) manda Enter después del código."""
+        codigo = self.campo_escaner.text().strip()
+        self.campo_escaner.clear()
+        if not codigo:
+            return
+
+        producto = buscar_por_codigo_barra(codigo)
+
+        # --- modo consulta: solo mostrar precio, no tocar el carrito ---
+        if self.checkbox_modo_consulta.isChecked():
+            if producto is None:
+                QMessageBox.information(self, "No encontrado", f"Código {codigo}: no está en el catálogo.")
+            else:
+                QMessageBox.information(
+                    self, producto["nombre"],
+                    f"{producto['nombre']}\nPrecio: $ {producto['precio']:,.0f}"
+                )
+            self.campo_escaner.setFocus()
+            return
+
+        # --- modo venta normal ---
+        if producto is not None:
+            self._click_producto(producto)
+            self.campo_escaner.setFocus()
+            return
+
+        # código no encontrado: ofrecer agregarlo al catálogo ahí mismo
+        respuesta = QMessageBox.question(
+            self, "Código no encontrado",
+            f"No hay ningún producto con el código {codigo}.\n"
+            "¿Quieres agregarlo al catálogo ahora?"
+        )
+        if respuesta == QMessageBox.Yes:
+            dialogo = DialogoProducto(self, codigo_barra_inicial=codigo)
+            if dialogo.exec() == QDialog.Accepted:
+                self.recargar_grilla()
+                nuevo_producto = obtener_producto(dialogo.producto_id)
+                self._click_producto(nuevo_producto)
+        self.campo_escaner.setFocus()
+
+    def _abrir_venta_libre(self):
+        dialogo = DialogoVentaLibre(self)
+        if dialogo.exec() != QDialog.Accepted:
+            return
+        nombre, precio = dialogo.resultado()
+        self.carrito.append({
+            "producto_id": None,
+            "nombre": nombre,
+            "cantidad": 1,
+            "precio_unitario": precio,
+            "subtotal": precio,
+            "es_venta_libre": 1,
+        })
+        self._refrescar_carrito()
+
+    def _quitar_del_carrito(self):
+        filas = self.tabla_carrito.selectionModel().selectedRows()
+        if not filas:
+            return
+        indice = filas[0].row()
+        del self.carrito[indice]
+        self._refrescar_carrito()
+
+    def _refrescar_carrito(self):
+        self.tabla_carrito.setRowCount(len(self.carrito))
+        total = 0
+        for fila, linea in enumerate(self.carrito):
+            nombre = linea["nombre"] + (" (libre)" if linea["es_venta_libre"] else "")
+            self.tabla_carrito.setItem(fila, 0, QTableWidgetItem(nombre))
+            self.tabla_carrito.setItem(fila, 1, QTableWidgetItem(f"{linea['cantidad']:g}"))
+            self.tabla_carrito.setItem(fila, 2, QTableWidgetItem(f"$ {linea['precio_unitario']:,.0f}"))
+            self.tabla_carrito.setItem(fila, 3, QTableWidgetItem(f"$ {linea['subtotal']:,.0f}"))
+            total += linea["subtotal"]
+        self.etiqueta_total.setText(f"Total: $ {total:,.0f}")
+
+    # -- cobro --------------------------------------------------------------
+
+    def _confirmar_venta(self):
+        if not self.carrito:
+            QMessageBox.information(self, "Carrito vacío", "Agrega al menos un producto antes de cobrar.")
+            return
+
+        sesion = sesion_abierta()
+        if sesion is None:
+            QMessageBox.warning(
+                self, "Caja cerrada",
+                "No hay una caja abierta. Ábrela primero en la pestaña Arqueo."
+            )
+            return
+
+        total = sum(linea["subtotal"] for linea in self.carrito)
+        origen = self.combo_origen.currentData()
+        metodo_pago = self.combo_pago.currentText()
+        sesion_id = sesion["id"]
+
+        with conectar() as con:
+            cursor_venta = con.execute(
+                """INSERT INTO ventas (caja_sesion_id, origen, total, metodo_pago)
+                   VALUES (?, ?, ?, ?)""",
+                (sesion_id, origen, total, metodo_pago),
+            )
+            venta_id = cursor_venta.lastrowid
+
+            for linea in self.carrito:
+                con.execute(
+                    """INSERT INTO detalle_venta
+                       (venta_id, producto_id, nombre_producto, cantidad,
+                        precio_unitario, subtotal, es_venta_libre)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (venta_id, linea["producto_id"], linea["nombre"], linea["cantidad"],
+                     linea["precio_unitario"], linea["subtotal"], linea["es_venta_libre"]),
+                )
+
+        QMessageBox.information(self, "Venta registrada", f"Total cobrado: $ {total:,.0f}")
+        self.carrito = []
+        self._refrescar_carrito()
+        self.campo_escaner.setFocus()

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# Carpetas que no queremos subir
+backups/
+datos/
+
+# Archivos de configuración con datos sensibles
+.env
+*.db
+*.sqlite
+*.sqlite3
+
+# VS Code
+.vscode/
+
+# Sistema
+Thumbs.db
+.DS_Store 
