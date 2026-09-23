@@ -1,11 +1,13 @@
 """
 Ventana principal del POS.
 
-Une las cuatro pantallas en pestañas y conecta las señales entre ellas:
+Une las pantallas en pestañas y conecta las señales entre ellas:
 
   - Cuando cambia el catálogo (productos.py) -> la grilla de venta se recarga
   - Cuando se abre o cierra la caja (arqueo.py) -> se recargan arqueo y
     caja vecina, para que muestren el estado correcto
+  - Cuando cambian los cajeros (dentro de Ajustes) -> se recarga el
+    selector en venta
 """
 
 from PySide6.QtWidgets import QMainWindow, QTabWidget
@@ -16,8 +18,7 @@ from productos import VentanaProductos
 from arqueo import WidgetArqueo
 from caja_vecina import WidgetCajaVecina
 from fiado import WidgetFiado
-from ajustes import WidgetAjustes
-
+from panel_ajustes import WidgetAjustesGeneral
 
 # Hoja de estilo de las pestañas: pestaña activa en el azul aciano de Hadar,
 # pestañas inactivas neutras. Queda acá (y no en cada pantalla) porque es un
@@ -58,7 +59,7 @@ class VentanaPrincipal(QMainWindow):
         self.pantalla_arqueo = WidgetArqueo()
         self.pantalla_caja_vecina = WidgetCajaVecina()
         self.pantalla_fiado = WidgetFiado()
-        self.pantalla_ajustes = WidgetAjustes()
+        self.pantalla_ajustes = WidgetAjustesGeneral()
 
         # catálogo cambia -> se recarga la grilla de venta
         self.pantalla_productos.productos_cambiaron.connect(
@@ -67,6 +68,9 @@ class VentanaPrincipal(QMainWindow):
 
         # se abre/cierra caja -> se actualiza el estado en arqueo y caja vecina
         self.pantalla_arqueo.caja_cambio.connect(self.pantalla_caja_vecina.recargar)
+
+        # cambian los cajeros (adentro de Ajustes) -> se recarga el selector en venta
+        self.pantalla_ajustes.cajeros_cambiaron.connect(self.pantalla_venta.recargar_cajeros)
 
         pestanas = QTabWidget()
         pestanas.setStyleSheet(ESTILO_PESTANAS)

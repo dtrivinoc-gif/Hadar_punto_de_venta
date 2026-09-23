@@ -7,6 +7,7 @@ derecha, y botones para cobrar. Incluye:
 
   - Botón "Otro" para venta libre (algo que no está catalogado todavía)
   - Selector de origen: venta del negocio o caja vecina
+  - Selector de cajero: quién está vendiendo, para atribuir cada venta
   - Precio variable: si el producto es tipo 'variable' o 'peso', pide el
     monto/cantidad en un diálogo antes de agregarlo al carrito
 """
@@ -24,6 +25,7 @@ from productos import listar_productos, buscar_por_codigo_barra, obtener_product
 from arqueo import sesion_abierta
 from fiado import DialogoSeleccionarCliente
 from tiempo import ahora_texto
+from cajeros import listar_cajeros, DialogoCajero
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +146,7 @@ class PantallaVenta(QWidget):
         self.carrito = []  # lista de dicts: producto_id, nombre, cantidad, precio_unitario, subtotal, es_venta_libre
         self._armar_ui()
         self.recargar_grilla()
+        self.recargar_cajeros()
         self.campo_escaner.setFocus()
 
     # -- construcción de la interfaz -----------------------------------
@@ -190,6 +193,17 @@ class PantallaVenta(QWidget):
         layout_origen.addWidget(self.combo_origen)
         columna_derecha.addWidget(grupo_origen)
 
+        grupo_cajero = QGroupBox("Cajero")
+        layout_cajero = QHBoxLayout(grupo_cajero)
+        self.combo_cajero = QComboBox()
+        layout_cajero.addWidget(self.combo_cajero, stretch=1)
+        boton_nuevo_cajero = QPushButton("+")
+        boton_nuevo_cajero.setMaximumWidth(32)
+        boton_nuevo_cajero.setToolTip("Agregar cajero nuevo")
+        boton_nuevo_cajero.clicked.connect(self._agregar_cajero)
+        layout_cajero.addWidget(boton_nuevo_cajero)
+        columna_derecha.addWidget(grupo_cajero)
+
         self.tabla_carrito = QTableWidget(0, 4)
         self.tabla_carrito.setHorizontalHeaderLabels(["Producto", "Cant.", "Precio", "Subtotal"])
         self.tabla_carrito.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -217,6 +231,28 @@ class PantallaVenta(QWidget):
         columna_derecha.addWidget(boton_cobrar)
 
         layout_principal.addLayout(columna_derecha, stretch=1)
+
+    # -- cajero --------------------------------------------------------------
+
+    def recargar_cajeros(self):
+        """Reconstruye el combo de cajeros, tratando de mantener el que
+        estaba seleccionado (útil cuando se llama tras agregar uno nuevo)."""
+        cajero_actual_id = self.combo_cajero.currentData()
+        self.combo_cajero.clear()
+        for cajero in listar_cajeros(solo_activos=True):
+            self.combo_cajero.addItem(cajero["nombre"], userData=cajero["id"])
+        if cajero_actual_id is not None:
+            indice = self.combo_cajero.findData(cajero_actual_id)
+            if indice >= 0:
+                self.combo_cajero.setCurrentIndex(indice)
+
+    def _agregar_cajero(self):
+        dialogo = DialogoCajero(self)
+        if dialogo.exec() == QDialog.Accepted:
+            self.recargar_cajeros()
+            indice = self.combo_cajero.findData(dialogo.cajero_id)
+            if indice >= 0:
+                self.combo_cajero.setCurrentIndex(indice)
 
     # -- grilla de productos ---------------------------------------------
 
@@ -363,6 +399,14 @@ class PantallaVenta(QWidget):
             )
             return
 
+        cajero_id = self.combo_cajero.currentData()
+        if cajero_id is None:
+            QMessageBox.warning(
+                self, "Falta el cajero",
+                "Selecciona quién está vendiendo (o agrega un cajero con el botón +)."
+            )
+            return
+
         total = sum(linea["subtotal"] for linea in self.carrito)
         origen = self.combo_origen.currentData()
         metodo_pago = self.combo_pago.currentText()
@@ -379,9 +423,10 @@ class PantallaVenta(QWidget):
 
         with conectar() as con:
             cursor_venta = con.execute(
-                """INSERT INTO ventas (caja_sesion_id, fecha_hora, origen, total, metodo_pago, cliente_id)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (sesion_id, ahora_texto(), origen, total, metodo_pago, cliente_id),
+                """INSERT INTO ventas
+                   (caja_sesion_id, fecha_hora, origen, total, metodo_pago, cliente_id, cajero_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (sesion_id, ahora_texto(), origen, total, metodo_pago, cliente_id, cajero_id),
             )
             venta_id = cursor_venta.lastrowid
 
@@ -399,3 +444,12 @@ class PantallaVenta(QWidget):
         self.carrito = []
         self._refrescar_carrito()
         self.campo_escaner.setFocus()
+
+        # intento de sincronizar apenas se cierra la venta -- si no hay
+        # internet, no hace nada (ver sincronizacion.py); el temporizador
+        # de fondo igual la va a subir más tarde
+        try:
+            from sincronizacion import sincronizar_ahora
+            sincronizar_ahora()
+        except Exception:
+            pass
