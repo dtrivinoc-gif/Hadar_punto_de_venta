@@ -26,6 +26,7 @@ from arqueo import sesion_abierta
 from fiado import DialogoSeleccionarCliente
 from tiempo import ahora_texto
 from cajeros import listar_cajeros, DialogoCajero
+from estilos import ESTILO_BASE, estilo_pestanas, ACENTO, seleccionar_texto_al_enfocar
 
 
 # ---------------------------------------------------------------------------
@@ -65,13 +66,18 @@ class DialogoPrecioVariable(QDialog):
 
         botones = QHBoxLayout()
         boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.setObjectName("botonSecundario")
         boton_cancelar.clicked.connect(self.reject)
         boton_ok = QPushButton("Agregar")
+        boton_ok.setObjectName("botonPrimario")
         boton_ok.setDefault(True)
         boton_ok.clicked.connect(self.accept)
         botones.addWidget(boton_cancelar)
         botones.addWidget(boton_ok)
         layout.addLayout(botones)
+
+        self.setStyleSheet(ESTILO_BASE)
+        seleccionar_texto_al_enfocar(self.campo)
 
     def _actualizar_total(self, valor):
         self.etiqueta_total.setText(f"$ {valor * self.precio_por_kilo:,.0f}")
@@ -117,13 +123,18 @@ class DialogoVentaLibre(QDialog):
 
         botones = QHBoxLayout()
         boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.setObjectName("botonSecundario")
         boton_cancelar.clicked.connect(self.reject)
         boton_ok = QPushButton("Agregar")
+        boton_ok.setObjectName("botonPrimario")
         boton_ok.setDefault(True)
         boton_ok.clicked.connect(self._validar_y_aceptar)
         botones.addWidget(boton_cancelar)
         botones.addWidget(boton_ok)
         layout.addLayout(botones)
+
+        self.setStyleSheet(ESTILO_BASE)
+        seleccionar_texto_al_enfocar(self.campo_precio)
 
     def _validar_y_aceptar(self):
         if not self.campo_nombre.text().strip():
@@ -152,6 +163,7 @@ class PantallaVenta(QWidget):
     # -- construcción de la interfaz -----------------------------------
 
     def _armar_ui(self):
+        self.setStyleSheet(ESTILO_BASE)
         layout_principal = QHBoxLayout(self)
 
         # --- columna izquierda: escaneo + grilla de productos por categoría ---
@@ -173,9 +185,11 @@ class PantallaVenta(QWidget):
         columna_izquierda.addLayout(fila_escaner)
 
         self.tabs_categorias = QTabWidget()
+        self.tabs_categorias.setStyleSheet(estilo_pestanas())
         columna_izquierda.addWidget(self.tabs_categorias, stretch=1)
 
         boton_venta_libre = QPushButton("+ Otro (no catalogado)")
+        boton_venta_libre.setObjectName("botonSecundario")
         boton_venta_libre.setMinimumHeight(48)
         boton_venta_libre.clicked.connect(self._abrir_venta_libre)
         columna_izquierda.addWidget(boton_venta_libre)
@@ -198,6 +212,7 @@ class PantallaVenta(QWidget):
         self.combo_cajero = QComboBox()
         layout_cajero.addWidget(self.combo_cajero, stretch=1)
         boton_nuevo_cajero = QPushButton("+")
+        boton_nuevo_cajero.setObjectName("botonSecundario")
         boton_nuevo_cajero.setMaximumWidth(32)
         boton_nuevo_cajero.setToolTip("Agregar cajero nuevo")
         boton_nuevo_cajero.clicked.connect(self._agregar_cajero)
@@ -212,11 +227,12 @@ class PantallaVenta(QWidget):
         columna_derecha.addWidget(self.tabla_carrito, stretch=1)
 
         boton_quitar = QPushButton("Quitar seleccionado")
+        boton_quitar.setObjectName("botonAdvertencia")
         boton_quitar.clicked.connect(self._quitar_del_carrito)
         columna_derecha.addWidget(boton_quitar)
 
         self.etiqueta_total = QLabel("Total: $ 0")
-        self.etiqueta_total.setStyleSheet("font-size: 22px; font-weight: bold;")
+        self.etiqueta_total.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {ACENTO};")
         self.etiqueta_total.setAlignment(Qt.AlignRight)
         columna_derecha.addWidget(self.etiqueta_total)
 
@@ -225,8 +241,9 @@ class PantallaVenta(QWidget):
         columna_derecha.addWidget(self.combo_pago)
 
         boton_cobrar = QPushButton("Cobrar")
+        boton_cobrar.setObjectName("botonExito")
         boton_cobrar.setMinimumHeight(56)
-        boton_cobrar.setStyleSheet("font-size: 18px; font-weight: bold;")
+        boton_cobrar.setStyleSheet("QPushButton#botonExito { font-size: 18px; }")
         boton_cobrar.clicked.connect(self._confirmar_venta)
         columna_derecha.addWidget(boton_cobrar)
 

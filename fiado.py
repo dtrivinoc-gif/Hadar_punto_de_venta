@@ -189,6 +189,17 @@ def deuda_total_negocio() -> float:
         return total_fiado - total_abonado
 
 
+def eliminar_cliente(cliente_id: int):
+    """Da de baja a un cliente (no lo borra de la tabla, para no perder el
+    historial de sus fiados/abonos pasados) -- solo se permite si está al
+    día, para no perder de vista una deuda por accidente."""
+    deuda = deuda_cliente(cliente_id)
+    if deuda > 0:
+        raise ValueError("No se puede eliminar: todavía debe $ {:,.0f}.".format(deuda))
+    with conectar() as con:
+        con.execute("UPDATE clientes SET activo = 0 WHERE id = ?", (cliente_id,))
+
+
 def historial_fiado_cliente(cliente_id: int):
     """Ventas fiadas (con sus productos y quién las registró) y abonos de
     un cliente, mezclados y ordenados por fecha."""
@@ -447,6 +458,12 @@ class _DialogoMonto(QDialog):
 
         self.setStyleSheet(ESTILO_FIADO)
 
+        # el monto siempre parte en un valor (QDoubleSpinBox no puede quedar
+        # "vacío"), así que dejamos el texto seleccionado: al empezar a
+        # escribir se reemplaza solo, sin tener que borrarlo primero
+        self.campo_monto.setFocus()
+        self.campo_monto.lineEdit().selectAll()
+
     def resultado(self):
         cajero_id = self.combo_cajero.currentData() if self.combo_cajero else None
         return self.campo_monto.value(), self.campo_nota.text().strip(), cajero_id
@@ -457,7 +474,7 @@ class DialogoRegistrarAbono(_DialogoMonto):
         super().__init__(
             parent, f"Abono de {nombre_cliente}", nombre_cliente, deuda_actual,
             texto_boton="Registrar abono", id_boton="botonAbono",
-            tope_monto=max(deuda_actual, 1), valor_inicial=deuda_actual,
+            tope_monto=max(deuda_actual, 1), valor_inicial=0,
             placeholder_nota="Ej: pagó la mitad", mostrar_cajero=False,
         )
 
@@ -476,7 +493,7 @@ class DialogoFiarDirecto(_DialogoMonto):
 # Filas custom para las listas (cliente / movimiento del historial)
 # ---------------------------------------------------------------------------
 
-def _fila_cliente(cliente) -> QWidget:
+def _fila_cliente(cliente, on_eliminar=None) -> QWidget:
     fila = QWidget()
     layout = QHBoxLayout(fila)
     layout.setContentsMargins(10, 8, 10, 8)
@@ -493,6 +510,19 @@ def _fila_cliente(cliente) -> QWidget:
         f"font-size: 12px; padding: 4px 10px; border-radius: 10px;"
     )
     layout.addWidget(badge)
+
+    if deuda <= 0 and on_eliminar is not None:
+        boton_eliminar = QPushButton("×")
+        boton_eliminar.setToolTip("Eliminar cliente (solo si está al día)")
+        boton_eliminar.setFixedSize(24, 24)
+        boton_eliminar.setStyleSheet(
+            f"QPushButton {{ border: none; background: transparent; color: {GRIS_MUTED}; "
+            f"font-size: 16px; font-weight: 700; }}"
+            f"QPushButton:hover {{ color: {ROJO}; background: {ROJO_SUAVE}; border-radius: 12px; }}"
+        )
+        boton_eliminar.clicked.connect(lambda: on_eliminar(cliente["id"], cliente["nombre"]))
+        layout.addWidget(boton_eliminar)
+
     return fila
 
 
@@ -657,7 +687,7 @@ class WidgetFiado(QWidget):
             item.setData(Qt.UserRole + 2, cliente["deuda"])
             item.setSizeHint(QSize(0, 54))
             self.lista_clientes.addItem(item)
-            self.lista_clientes.setItemWidget(item, _fila_cliente(cliente))
+            self.lista_clientes.setItemWidget(item, _fila_cliente(cliente, on_eliminar=self._eliminar_cliente))
             if cliente["id"] == seleccionar_cliente_id:
                 item_a_seleccionar = item
 
@@ -719,6 +749,24 @@ class WidgetFiado(QWidget):
         self.lista_historial.show()
 
     # -- acciones ------------------------------------------------------------
+
+    def _eliminar_cliente(self, cliente_id, nombre):
+        respuesta = QMessageBox.question(
+            self, "Eliminar cliente",
+            f"¿Quitar a {nombre} de la lista? Esto no borra su historial pasado, "
+            "solo deja de mostrarlo entre los clientes activos.",
+        )
+        if respuesta != QMessageBox.Yes:
+            return
+        try:
+            eliminar_cliente(cliente_id)
+        except ValueError as error:
+            QMessageBox.warning(self, "No se pudo eliminar", str(error))
+            return
+
+        if self.cliente_seleccionado_id == cliente_id:
+            self.cliente_seleccionado_id = None
+        self.recargar(filtro=self.campo_buscar_cliente.text())
 
     def _registrar_abono(self):
         if self.cliente_seleccionado_id is None:

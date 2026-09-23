@@ -12,39 +12,14 @@ Une las pantallas en pestañas y conecta las señales entre ellas:
 
 from PySide6.QtWidgets import QMainWindow, QTabWidget
 
-from config import NOMBRE_APP, NOMBRE_NEGOCIO, COLOR_ACENTO_HADAR
+from config import NOMBRE_APP, NOMBRE_NEGOCIO
+from estilos import estilo_pestanas
 from venta import PantallaVenta
 from productos import VentanaProductos
 from arqueo import WidgetArqueo
 from caja_vecina import WidgetCajaVecina
 from fiado import WidgetFiado
 from panel_ajustes import WidgetAjustesGeneral
-
-# Hoja de estilo de las pestañas: pestaña activa en el azul aciano de Hadar,
-# pestañas inactivas neutras. Queda acá (y no en cada pantalla) porque es un
-# detalle de la ventana principal, no de cada pestaña individual.
-ESTILO_PESTANAS = f"""
-QTabWidget::pane {{
-    border: none;
-    background: #FFFFFF;
-}}
-QTabBar::tab {{
-    background: #F1F2F6;
-    color: #3A3A3A;
-    padding: 10px 22px;
-    margin-right: 6px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-}}
-QTabBar::tab:hover {{
-    background: #E4E6F5;
-}}
-QTabBar::tab:selected {{
-    background: {COLOR_ACENTO_HADAR};
-    color: #FFFFFF;
-}}
-"""
 
 
 class VentanaPrincipal(QMainWindow):
@@ -73,7 +48,7 @@ class VentanaPrincipal(QMainWindow):
         self.pantalla_ajustes.cajeros_cambiaron.connect(self.pantalla_venta.recargar_cajeros)
 
         pestanas = QTabWidget()
-        pestanas.setStyleSheet(ESTILO_PESTANAS)
+        pestanas.setStyleSheet(estilo_pestanas())
         pestanas.addTab(self.pantalla_venta, "Venta")
         pestanas.addTab(self.pantalla_productos, "Productos")
         pestanas.addTab(self.pantalla_arqueo, "Arqueo")
