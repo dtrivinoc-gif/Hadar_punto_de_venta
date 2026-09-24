@@ -347,6 +347,32 @@ class WidgetArqueo(QWidget):
             f"<span style='color:{color}; font-weight:700;'>{texto_diferencia}</span>"
         )
 
+    def _enviar_reporte_automatico(self, fecha_apertura: str):
+        """Si está activado en la configuración de correo, manda el
+        reporte del día apenas se cierra la caja -- sin que nadie tenga
+        que acordarse de ir a la pestaña Reportes a mano."""
+        from notificaciones import cargar_configuracion, enviar_reporte_por_correo
+        config = cargar_configuracion()
+        if not config.get("enviar_automatico_al_cerrar_caja"):
+            return
+
+        from reportes import generar_reporte_dia, formatear_reporte_texto
+        # la fecha del reporte es la de APERTURA de esta sesión (el día
+        # que se está cerrando), no la fecha de hoy -- por si se cierra
+        # la caja ya pasada la medianoche
+        fecha = fecha_apertura.split(" ")[0]
+        datos = generar_reporte_dia(fecha)
+        texto = formatear_reporte_texto(datos)
+
+        def _resultado(ok, error):
+            if not ok:
+                QMessageBox.warning(
+                    self, "No se pudo enviar el reporte",
+                    f"La caja se cerró bien, pero el correo automático falló:\n{error}"
+                )
+
+        enviar_reporte_por_correo(self, fecha, texto, on_resultado=_resultado)
+
     def _cerrar(self):
         sesion = sesion_abierta()
         if sesion is None:
@@ -367,6 +393,8 @@ class WidgetArqueo(QWidget):
         cuadro.setTextFormat(Qt.RichText)
         cuadro.setText(mensaje)
         cuadro.exec()
+
+        self._enviar_reporte_automatico(sesion["fecha_apertura"])
 
         self.recargar()
         self.caja_cambio.emit()

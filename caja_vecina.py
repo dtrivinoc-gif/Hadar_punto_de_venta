@@ -12,9 +12,14 @@ from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QLineEdit, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
 )
+from PySide6.QtGui import QColor
 
 from db import conectar
 from arqueo import sesion_abierta
+from estilos import (
+    ESTILO_BASE, ACENTO, VERDE, NARANJA, ROJO, GRIS_MUTED,
+    seleccionar_texto_al_enfocar,
+)
 
 
 TIPOS_MOVIMIENTO = [
@@ -80,13 +85,28 @@ class DialogoMovimientoCajaVecina(QDialog):
 
         botones = QHBoxLayout()
         boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.setObjectName("botonSecundario")
         boton_cancelar.clicked.connect(self.reject)
-        boton_ok = QPushButton("Registrar")
-        boton_ok.setDefault(True)
-        boton_ok.clicked.connect(self._validar_y_aceptar)
+        self.boton_ok = QPushButton("Registrar")
+        self.boton_ok.setDefault(True)
+        self.boton_ok.clicked.connect(self._validar_y_aceptar)
         botones.addWidget(boton_cancelar)
-        botones.addWidget(boton_ok)
+        botones.addWidget(self.boton_ok)
         layout.addLayout(botones)
+
+        self.setStyleSheet(ESTILO_BASE)
+        self.combo_tipo.currentIndexChanged.connect(self._actualizar_color_boton)
+        self._actualizar_color_boton()
+        seleccionar_texto_al_enfocar(self.campo_monto)
+
+    def _actualizar_color_boton(self):
+        """El botón de registrar cambia de color según lo que significa el
+        movimiento: verde si entra plata a caja vecina (depósito), naranja
+        si sale (retiro o comisión) -- mismo lenguaje que el resto del POS."""
+        tipo = self.combo_tipo.currentData()
+        self.boton_ok.setObjectName("botonExito" if tipo == "deposito" else "botonAdvertencia")
+        self.boton_ok.style().unpolish(self.boton_ok)
+        self.boton_ok.style().polish(self.boton_ok)
 
     def _validar_y_aceptar(self):
         if self.campo_monto.value() <= 0:
@@ -114,13 +134,16 @@ class WidgetCajaVecina(QWidget):
         self.recargar()
 
     def _armar_ui(self):
+        self.setStyleSheet(ESTILO_BASE)
         layout = QVBoxLayout(self)
 
         self.etiqueta_saldo = QLabel()
-        self.etiqueta_saldo.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.etiqueta_saldo.setStyleSheet("font-size: 24px; font-weight: 800;")
         layout.addWidget(self.etiqueta_saldo)
 
         self.boton_agregar = QPushButton("+ Registrar movimiento")
+        self.boton_agregar.setObjectName("botonPrimario")
+        self.boton_agregar.setMinimumHeight(44)
         self.boton_agregar.clicked.connect(self._agregar)
         layout.addWidget(self.boton_agregar)
 
@@ -136,6 +159,7 @@ class WidgetCajaVecina(QWidget):
 
         if sesion is None:
             self.etiqueta_saldo.setText("No hay caja abierta.")
+            self.etiqueta_saldo.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {GRIS_MUTED};")
             self.boton_agregar.setEnabled(False)
             self.tabla.setRowCount(0)
             return
@@ -147,17 +171,27 @@ class WidgetCajaVecina(QWidget):
         self.tabla.setRowCount(len(movimientos))
         saldo = sesion["monto_apertura_vecina"]
         for fila, movimiento in enumerate(movimientos):
+            es_deposito = movimiento["tipo"] == "deposito"
+            color = QColor(VERDE if es_deposito else NARANJA)
+            signo = "+" if es_deposito else "-"
+
             self.tabla.setItem(fila, 0, QTableWidgetItem(movimiento["fecha_hora"]))
             self.tabla.setItem(fila, 1, QTableWidgetItem(etiquetas_tipo.get(movimiento["tipo"], movimiento["tipo"])))
-            self.tabla.setItem(fila, 2, QTableWidgetItem(f"$ {movimiento['monto']:,.0f}"))
+
+            item_monto = QTableWidgetItem(f"{signo} $ {movimiento['monto']:,.0f}")
+            item_monto.setForeground(color)
+            self.tabla.setItem(fila, 2, item_monto)
+
             self.tabla.setItem(fila, 3, QTableWidgetItem(movimiento["descripcion"] or ""))
 
-            if movimiento["tipo"] == "deposito":
+            if es_deposito:
                 saldo += movimiento["monto"]
             else:  # retiro o comision, ambos restan de la caja vecina
                 saldo -= movimiento["monto"]
 
-        self.etiqueta_saldo.setText(f"Saldo caja vecina (apertura + movimientos): $ {saldo:,.0f}")
+        color_saldo = ROJO if saldo < 0 else ACENTO
+        self.etiqueta_saldo.setText(f"Saldo caja vecina: $ {saldo:,.0f}")
+        self.etiqueta_saldo.setStyleSheet(f"font-size: 24px; font-weight: 800; color: {color_saldo};")
 
     def _agregar(self):
         sesion = sesion_abierta()

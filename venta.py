@@ -304,6 +304,39 @@ class PantallaVenta(QWidget):
 
     # -- lógica del carrito -----------------------------------------------
 
+    def _agregar_al_carrito(self, producto_id, nombre, cantidad, precio_unitario, es_venta_libre):
+        """
+        Agrega una línea al carrito. Si ya hay una línea del MISMO producto
+        al MISMO precio unitario, le suma la cantidad en vez de crear una
+        fila repetida -- así "2 cafés" sale como una sola línea con
+        cantidad 2, no como dos líneas de café separadas.
+        """
+        for linea in self.carrito:
+            es_el_mismo = (
+                linea["producto_id"] == producto_id
+                and linea["es_venta_libre"] == es_venta_libre
+                and linea["precio_unitario"] == precio_unitario
+                # para venta libre no hay producto_id -- ahí comparamos
+                # también por nombre, para no mezclar dos "Otro" distintos
+                # que por casualidad quedaron al mismo precio
+                and (producto_id is not None or linea["nombre"] == nombre)
+            )
+            if es_el_mismo:
+                linea["cantidad"] += cantidad
+                linea["subtotal"] = linea["cantidad"] * linea["precio_unitario"]
+                self._refrescar_carrito()
+                return
+
+        self.carrito.append({
+            "producto_id": producto_id,
+            "nombre": nombre,
+            "cantidad": cantidad,
+            "precio_unitario": precio_unitario,
+            "subtotal": cantidad * precio_unitario,
+            "es_venta_libre": es_venta_libre,
+        })
+        self._refrescar_carrito()
+
     def _click_producto(self, producto):
         if producto["tipo_venta"] in ("variable", "peso"):
             dialogo = DialogoPrecioVariable(
@@ -311,19 +344,11 @@ class PantallaVenta(QWidget):
             )
             if dialogo.exec() != QDialog.Accepted:
                 return
-            cantidad, precio_unitario, subtotal = dialogo.resultado()
+            cantidad, precio_unitario, _subtotal = dialogo.resultado()
         else:
-            cantidad, precio_unitario, subtotal = 1, producto["precio"], producto["precio"]
+            cantidad, precio_unitario = 1, producto["precio"]
 
-        self.carrito.append({
-            "producto_id": producto["id"],
-            "nombre": producto["nombre"],
-            "cantidad": cantidad,
-            "precio_unitario": precio_unitario,
-            "subtotal": subtotal,
-            "es_venta_libre": 0,
-        })
-        self._refrescar_carrito()
+        self._agregar_al_carrito(producto["id"], producto["nombre"], cantidad, precio_unitario, 0)
 
     def _procesar_escaneo(self):
         """Se llama cuando la pistola (o el teclado) manda Enter después del código."""
@@ -371,15 +396,7 @@ class PantallaVenta(QWidget):
         if dialogo.exec() != QDialog.Accepted:
             return
         nombre, precio = dialogo.resultado()
-        self.carrito.append({
-            "producto_id": None,
-            "nombre": nombre,
-            "cantidad": 1,
-            "precio_unitario": precio,
-            "subtotal": precio,
-            "es_venta_libre": 1,
-        })
-        self._refrescar_carrito()
+        self._agregar_al_carrito(None, nombre, 1, precio, 1)
 
     def _quitar_del_carrito(self):
         filas = self.tabla_carrito.selectionModel().selectedRows()

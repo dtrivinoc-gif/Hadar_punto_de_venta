@@ -17,8 +17,10 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QMessageBox, QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 
 from db import conectar
+from estilos import ESTILO_BASE, VERDE, GRIS_MUTED, seleccionar_texto_al_enfocar
 
 
 TIPOS_VENTA = [
@@ -181,13 +183,18 @@ class DialogoProducto(QDialog):
 
         botones = QHBoxLayout()
         boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.setObjectName("botonSecundario")
         boton_cancelar.clicked.connect(self.reject)
         boton_guardar = QPushButton("Guardar")
+        boton_guardar.setObjectName("botonPrimario")
         boton_guardar.setDefault(True)
         boton_guardar.clicked.connect(self._guardar)
         botones.addWidget(boton_cancelar)
         botones.addWidget(boton_guardar)
         layout.addLayout(botones)
+
+        self.setStyleSheet(ESTILO_BASE)
+        seleccionar_texto_al_enfocar(self.campo_precio)
 
     def _cargar_datos(self, producto):
         self.campo_nombre.setText(producto["nombre"])
@@ -240,6 +247,7 @@ class VentanaProductos(QWidget):
         self.recargar()
 
     def _armar_ui(self):
+        self.setStyleSheet(ESTILO_BASE)
         layout = QVBoxLayout(self)
 
         barra_botones = QHBoxLayout()
@@ -249,14 +257,17 @@ class VentanaProductos(QWidget):
         barra_botones.addStretch()
 
         boton_agregar = QPushButton("+ Agregar producto")
+        boton_agregar.setObjectName("botonPrimario")
         boton_agregar.clicked.connect(self._agregar)
         barra_botones.addWidget(boton_agregar)
 
         boton_editar = QPushButton("Editar")
+        boton_editar.setObjectName("botonSecundario")
         boton_editar.clicked.connect(self._editar)
         barra_botones.addWidget(boton_editar)
 
         self.boton_baja = QPushButton("Dar de baja")
+        self.boton_baja.setObjectName("botonAdvertencia")
         self.boton_baja.clicked.connect(self._dar_de_baja)
         barra_botones.addWidget(self.boton_baja)
 
@@ -285,7 +296,9 @@ class VentanaProductos(QWidget):
             self.tabla.setItem(fila, 2, QTableWidgetItem(f"$ {producto['precio']:,.0f}"))
             self.tabla.setItem(fila, 3, QTableWidgetItem(etiquetas_tipo.get(producto["tipo_venta"], "")))
             estado = "Activo" if producto["activo"] else "De baja"
-            self.tabla.setItem(fila, 4, QTableWidgetItem(estado))
+            item_estado = QTableWidgetItem(estado)
+            item_estado.setForeground(QColor(VERDE if producto["activo"] else GRIS_MUTED))
+            self.tabla.setItem(fila, 4, item_estado)
             # guardamos el id del producto en la primera celda para recuperarlo después
             self.tabla.item(fila, 0).setData(Qt.UserRole, producto["id"])
 

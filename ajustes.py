@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QDateTime
 
 from tiempo import ahora, desfase_actual_segundos, establecer_hora_correcta
+from estilos import ESTILO_BASE, ACENTO, NARANJA, GRIS_MUTED
 
 
 class WidgetAjustes(QWidget):
@@ -30,17 +31,17 @@ class WidgetAjustes(QWidget):
         self.temporizador.start(1000)
 
     def _armar_ui(self):
+        self.setStyleSheet(ESTILO_BASE)
         layout = QVBoxLayout(self)
 
         grupo = QGroupBox("Hora del sistema")
         layout_grupo = QVBoxLayout(grupo)
 
         self.etiqueta_hora_actual = QLabel()
-        self.etiqueta_hora_actual.setStyleSheet("font-size: 20px; font-weight: bold;")
+        self.etiqueta_hora_actual.setStyleSheet(f"font-size: 22px; font-weight: 800; color: {ACENTO};")
         layout_grupo.addWidget(self.etiqueta_hora_actual)
 
         self.etiqueta_desfase = QLabel()
-        self.etiqueta_desfase.setStyleSheet("color: #666;")
         layout_grupo.addWidget(self.etiqueta_desfase)
 
         layout_grupo.addWidget(QLabel(
@@ -59,11 +60,13 @@ class WidgetAjustes(QWidget):
 
         fila_botones = QHBoxLayout()
         boton_ahora = QPushButton("Usar la hora actual del PC")
+        boton_ahora.setObjectName("botonSecundario")
         boton_ahora.setToolTip("Rellena el campo con la hora del PC, por si solo necesitas quitar la corrección.")
         boton_ahora.clicked.connect(lambda: self.campo_hora_correcta.setDateTime(QDateTime.currentDateTime()))
         fila_botones.addWidget(boton_ahora)
 
         boton_guardar = QPushButton("Guardar hora correcta")
+        boton_guardar.setObjectName("botonPrimario")
         boton_guardar.setMinimumHeight(40)
         boton_guardar.clicked.connect(self._guardar_correccion)
         fila_botones.addWidget(boton_guardar)
@@ -77,6 +80,7 @@ class WidgetAjustes(QWidget):
         desfase = desfase_actual_segundos()
         if desfase == 0:
             self.etiqueta_desfase.setText("Sin corrección aplicada (usa la hora del PC tal cual).")
+            self.etiqueta_desfase.setStyleSheet(f"color: {GRIS_MUTED};")
         else:
             signo = "adelantada" if desfase > 0 else "atrasada"
             minutos = abs(desfase) // 60
@@ -84,6 +88,7 @@ class WidgetAjustes(QWidget):
             self.etiqueta_desfase.setText(
                 f"Corrección activa: {minutos} min {segundos} s {signo} respecto al reloj del PC."
             )
+            self.etiqueta_desfase.setStyleSheet(f"color: {NARANJA}; font-weight: 600;")
 
     def _guardar_correccion(self):
         fecha_hora_correcta = self.campo_hora_correcta.dateTime().toPython()
