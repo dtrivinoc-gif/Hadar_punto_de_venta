@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QPushButton, QLabel, QFileDi
 
 from config import RUTA_BASE_DATOS
 from db import conectar
+from estilos import ESTILO_BASE, GRIS_MUTED
 
 
 # ---------------------------------------------------------------------------
@@ -68,18 +69,23 @@ class WidgetExportar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setStyleSheet(ESTILO_BASE)
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel(
+        etiqueta_intro = QLabel(
             "Exporta los datos del POS para respaldarlos o para cargarlos en Hadar."
-        ))
+        )
+        etiqueta_intro.setStyleSheet(f"color: {GRIS_MUTED}; font-size: 13px;")
+        layout.addWidget(etiqueta_intro)
 
         boton_excel = QPushButton("Exportar a Excel (para Hadar)")
-        boton_excel.setMinimumHeight(44)
+        boton_excel.setObjectName("botonPrimario")
+        boton_excel.setMinimumHeight(48)
         boton_excel.clicked.connect(self._exportar_excel)
         layout.addWidget(boton_excel)
 
         boton_db = QPushButton("Copiar base de datos completa (.db)")
+        boton_db.setObjectName("botonSecundario")
         boton_db.setMinimumHeight(44)
         boton_db.clicked.connect(self._copiar_db)
         layout.addWidget(boton_db)

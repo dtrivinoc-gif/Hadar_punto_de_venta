@@ -226,10 +226,17 @@ class PantallaVenta(QWidget):
         self.tabla_carrito.setSelectionBehavior(QTableWidget.SelectRows)
         columna_derecha.addWidget(self.tabla_carrito, stretch=1)
 
+        fila_quitar = QHBoxLayout()
         boton_quitar = QPushButton("Quitar seleccionado")
         boton_quitar.setObjectName("botonAdvertencia")
         boton_quitar.clicked.connect(self._quitar_del_carrito)
-        columna_derecha.addWidget(boton_quitar)
+        fila_quitar.addWidget(boton_quitar)
+
+        boton_quitar_todo = QPushButton("Quitar todo")
+        boton_quitar_todo.setObjectName("botonPeligro")
+        boton_quitar_todo.clicked.connect(self._quitar_todo)
+        fila_quitar.addWidget(boton_quitar_todo)
+        columna_derecha.addLayout(fila_quitar)
 
         self.etiqueta_total = QLabel("Total: $ 0")
         self.etiqueta_total.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {ACENTO};")
@@ -405,6 +412,16 @@ class PantallaVenta(QWidget):
         indice = filas[0].row()
         del self.carrito[indice]
         self._refrescar_carrito()
+
+    def _quitar_todo(self):
+        if not self.carrito:
+            return
+        respuesta = QMessageBox.question(
+            self, "Vaciar carrito", "¿Quitar todo lo que hay en el carrito?"
+        )
+        if respuesta == QMessageBox.Yes:
+            self.carrito = []
+            self._refrescar_carrito()
 
     def _refrescar_carrito(self):
         self.tabla_carrito.setRowCount(len(self.carrito))

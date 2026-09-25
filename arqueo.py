@@ -351,18 +351,32 @@ class WidgetArqueo(QWidget):
         """Si está activado en la configuración de correo, manda el
         reporte del día apenas se cierra la caja -- sin que nadie tenga
         que acordarse de ir a la pestaña Reportes a mano."""
+        import os
+        import tempfile
         from notificaciones import cargar_configuracion, enviar_reporte_por_correo
         config = cargar_configuracion()
         if not config.get("enviar_automatico_al_cerrar_caja"):
             return
 
-        from reportes import generar_reporte_dia, formatear_reporte_texto
+        from reportes import generar_reporte_dia, formatear_reporte_texto, generar_pdf_reporte
         # la fecha del reporte es la de APERTURA de esta sesión (el día
         # que se está cerrando), no la fecha de hoy -- por si se cierra
         # la caja ya pasada la medianoche
         fecha = fecha_apertura.split(" ")[0]
         datos = generar_reporte_dia(fecha)
         texto = formatear_reporte_texto(datos)
+
+        ruta_pdf = os.path.join(tempfile.gettempdir(), f"reporte_pos_{fecha}.pdf")
+        try:
+            generar_pdf_reporte(texto, ruta_pdf, titulo=f"Reporte del día — {fecha}")
+        except Exception as error:
+            QMessageBox.warning(
+                self, "No se pudo generar el PDF del reporte",
+                f"La caja se cerró bien, pero no se pudo armar el PDF para el correo automático:\n{error}"
+            )
+            return
+
+        cuerpo = f"Se adjunta el reporte del día {fecha}."
 
         def _resultado(ok, error):
             if not ok:
@@ -371,7 +385,7 @@ class WidgetArqueo(QWidget):
                     f"La caja se cerró bien, pero el correo automático falló:\n{error}"
                 )
 
-        enviar_reporte_por_correo(self, fecha, texto, on_resultado=_resultado)
+        enviar_reporte_por_correo(self, fecha, cuerpo, on_resultado=_resultado, ruta_adjunto=ruta_pdf)
 
     def _cerrar(self):
         sesion = sesion_abierta()

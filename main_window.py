@@ -19,6 +19,7 @@ from productos import VentanaProductos
 from arqueo import WidgetArqueo
 from caja_vecina import WidgetCajaVecina
 from fiado import WidgetFiado
+from reportes import WidgetReportes
 from panel_ajustes import WidgetAjustesGeneral
 
 
@@ -34,6 +35,7 @@ class VentanaPrincipal(QMainWindow):
         self.pantalla_arqueo = WidgetArqueo()
         self.pantalla_caja_vecina = WidgetCajaVecina()
         self.pantalla_fiado = WidgetFiado()
+        self.pantalla_reportes = WidgetReportes()
         self.pantalla_ajustes = WidgetAjustesGeneral()
 
         # catálogo cambia -> se recarga la grilla de venta
@@ -54,6 +56,7 @@ class VentanaPrincipal(QMainWindow):
         pestanas.addTab(self.pantalla_arqueo, "Arqueo")
         pestanas.addTab(self.pantalla_caja_vecina, "Caja vecina")
         pestanas.addTab(self.pantalla_fiado, "Fiado")
+        pestanas.addTab(self.pantalla_reportes, "Reportes")
         pestanas.addTab(self.pantalla_ajustes, "Ajustes")
 
         # recargar Fiado cada vez que se entra a la pestaña, para que una

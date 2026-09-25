@@ -11,8 +11,10 @@ from PySide6.QtWidgets import (
     QHeaderView, QMessageBox, QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 
 from db import conectar
+from estilos import ESTILO_BASE, VERDE, GRIS_MUTED
 
 
 # ---------------------------------------------------------------------------
@@ -67,13 +69,17 @@ class DialogoCajero(QDialog):
 
         botones = QHBoxLayout()
         boton_cancelar = QPushButton("Cancelar")
+        boton_cancelar.setObjectName("botonSecundario")
         boton_cancelar.clicked.connect(self.reject)
         boton_ok = QPushButton("Agregar")
+        boton_ok.setObjectName("botonPrimario")
         boton_ok.setDefault(True)
         boton_ok.clicked.connect(self._validar_y_aceptar)
         botones.addWidget(boton_cancelar)
         botones.addWidget(boton_ok)
         layout.addLayout(botones)
+
+        self.setStyleSheet(ESTILO_BASE)
 
     def _validar_y_aceptar(self):
         if not self.campo_nombre.text().strip():
@@ -97,6 +103,7 @@ class VentanaCajeros(QWidget):
         self.recargar()
 
     def _armar_ui(self):
+        self.setStyleSheet(ESTILO_BASE)
         layout = QVBoxLayout(self)
 
         barra = QHBoxLayout()
@@ -106,10 +113,12 @@ class VentanaCajeros(QWidget):
         barra.addStretch()
 
         boton_agregar = QPushButton("+ Agregar cajero")
+        boton_agregar.setObjectName("botonPrimario")
         boton_agregar.clicked.connect(self._agregar)
         barra.addWidget(boton_agregar)
 
         self.boton_baja = QPushButton("Dar de baja")
+        self.boton_baja.setObjectName("botonAdvertencia")
         self.boton_baja.clicked.connect(self._dar_de_baja)
         barra.addWidget(self.boton_baja)
         layout.addLayout(barra)
@@ -127,7 +136,9 @@ class VentanaCajeros(QWidget):
         self.tabla.setRowCount(len(cajeros))
         for fila, cajero in enumerate(cajeros):
             self.tabla.setItem(fila, 0, QTableWidgetItem(cajero["nombre"]))
-            self.tabla.setItem(fila, 1, QTableWidgetItem("Activo" if cajero["activo"] else "De baja"))
+            item_estado = QTableWidgetItem("Activo" if cajero["activo"] else "De baja")
+            item_estado.setForeground(QColor(VERDE if cajero["activo"] else GRIS_MUTED))
+            self.tabla.setItem(fila, 1, item_estado)
             self.tabla.item(fila, 0).setData(Qt.UserRole, cajero["id"])
 
     def _fila_seleccionada_id(self):

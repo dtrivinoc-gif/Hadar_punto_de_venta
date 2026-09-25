@@ -18,7 +18,6 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget
 from ajustes import WidgetAjustes
 from cajeros import VentanaCajeros
 from exportar import WidgetExportar
-from reportes import WidgetReportes
 
 
 class WidgetAjustesGeneral(QWidget):
@@ -32,13 +31,11 @@ class WidgetAjustesGeneral(QWidget):
         self.pantalla_ajustes = WidgetAjustes()
         self.pantalla_cajeros = VentanaCajeros()
         self.pantalla_exportar = WidgetExportar()
-        self.pantalla_reportes = WidgetReportes()
 
         sub_pestanas = QTabWidget()
         sub_pestanas.addTab(self.pantalla_ajustes, "General")
         sub_pestanas.addTab(self.pantalla_cajeros, "Cajeros")
         sub_pestanas.addTab(self.pantalla_exportar, "Exportar")
-        sub_pestanas.addTab(self.pantalla_reportes, "Reportes")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 8, 0, 0)

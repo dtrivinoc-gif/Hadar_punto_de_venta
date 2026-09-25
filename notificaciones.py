@@ -16,6 +16,8 @@ import json
 import os
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import (
@@ -63,8 +65,19 @@ def guardar_configuracion(config):
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-def _enviar_smtp(config, destinatario, asunto, cuerpo):
-    mensaje = MIMEText(cuerpo, "plain", "utf-8")
+def _enviar_smtp(config, destinatario, asunto, cuerpo, ruta_adjunto=None):
+    if ruta_adjunto:
+        mensaje = MIMEMultipart()
+        mensaje.attach(MIMEText(cuerpo, "plain", "utf-8"))
+        with open(ruta_adjunto, "rb") as archivo:
+            adjunto = MIMEApplication(archivo.read(), _subtype="pdf")
+        adjunto.add_header(
+            "Content-Disposition", "attachment", filename=os.path.basename(ruta_adjunto)
+        )
+        mensaje.attach(adjunto)
+    else:
+        mensaje = MIMEText(cuerpo, "plain", "utf-8")
+
     mensaje["Subject"] = asunto
     mensaje["From"] = config["correo_remitente"]
     mensaje["To"] = destinatario
@@ -80,16 +93,17 @@ class CorreoWorker(QObject):
     disparar_envio_correo() más abajo."""
     resultado = Signal(bool, str)
 
-    def __init__(self, config, destinatario, asunto, cuerpo):
+    def __init__(self, config, destinatario, asunto, cuerpo, ruta_adjunto=None):
         super().__init__()
         self.config = config
         self.destinatario = destinatario
         self.asunto = asunto
         self.cuerpo = cuerpo
+        self.ruta_adjunto = ruta_adjunto
 
     def run(self):
         try:
-            _enviar_smtp(self.config, self.destinatario, self.asunto, self.cuerpo)
+            _enviar_smtp(self.config, self.destinatario, self.asunto, self.cuerpo, self.ruta_adjunto)
             self.resultado.emit(True, "")
         except Exception as exc:
             self.resultado.emit(False, str(exc))
@@ -113,8 +127,9 @@ class _PuenteResultado(QObject):
 
 
 def disparar_envio_correo(host, destinatario, asunto, cuerpo, on_resultado=None,
-                           verificar_habilitado=True):
-    """Manda un correo en un hilo aparte.
+                           verificar_habilitado=True, ruta_adjunto=None):
+    """Manda un correo en un hilo aparte. `ruta_adjunto`, si se pasa, es la
+    ruta a un archivo (ej. un PDF) que se adjunta al correo.
 
     `host` es cualquier objeto Qt que se mantenga vivo mientras el POS
     esté abierto (la pantalla de Reportes o Arqueo sirven) -- necesita
@@ -136,7 +151,7 @@ def disparar_envio_correo(host, destinatario, asunto, cuerpo, on_resultado=None,
         return
 
     hilo = QThread()
-    worker = CorreoWorker(config, destinatario, asunto, cuerpo)
+    worker = CorreoWorker(config, destinatario, asunto, cuerpo, ruta_adjunto)
     worker.moveToThread(hilo)
     hilo.started.connect(worker.run)
 
@@ -164,7 +179,7 @@ def disparar_envio_correo(host, destinatario, asunto, cuerpo, on_resultado=None,
 
 
 def enviar_reporte_por_correo(host, fecha_texto, cuerpo_reporte, on_resultado=None,
-                               verificar_habilitado=True):
+                               verificar_habilitado=True, ruta_adjunto=None):
     """Atajo para el caso de uso de reportes.py / arqueo.py: arma el
     asunto solo y manda al correo destino predeterminado guardado en la
     configuración."""
@@ -175,7 +190,8 @@ def enviar_reporte_por_correo(host, fecha_texto, cuerpo_reporte, on_resultado=No
             on_resultado(False, "No hay correo de destino configurado.")
         return
     asunto = f"Reporte POS — {fecha_texto}"
-    disparar_envio_correo(host, destino, asunto, cuerpo_reporte, on_resultado, verificar_habilitado)
+    disparar_envio_correo(host, destino, asunto, cuerpo_reporte, on_resultado,
+                           verificar_habilitado, ruta_adjunto)
 
 
 # ----------------------------------------------------------------------------

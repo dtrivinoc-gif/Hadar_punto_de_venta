@@ -145,6 +145,11 @@ QPushButton#botonAdvertencia {{
 }}
 QPushButton#botonAdvertencia:hover {{ background: {NARANJA_HOVER}; }}
 
+QPushButton#botonPeligro {{
+    background: {ROJO}; color: white; border: none;
+}}
+QPushButton#botonPeligro:hover {{ background: {ROJO_HOVER}; }}
+
 QPushButton#botonSecundario {{
     background: white; color: {GRIS_TEXTO}; border: 1px solid {BORDE};
 }}

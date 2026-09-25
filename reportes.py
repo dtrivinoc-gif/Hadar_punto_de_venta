@@ -8,11 +8,16 @@ reporte es para tener un pantallazo rápido del día, no un detalle línea
 por línea.
 """
 
+import os
+import tempfile
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTextEdit,
     QDateEdit, QComboBox, QFileDialog, QMessageBox, QDialog, QGroupBox,
 )
 from PySide6.QtCore import QDate
+from PySide6.QtGui import QTextDocument
+from PySide6.QtPrintSupport import QPrinter
 
 from db import conectar
 from notificaciones import disparar_envio_correo, DialogoConfiguracionCorreo, cargar_configuracion
@@ -106,7 +111,7 @@ def generar_reporte_dia(fecha: str) -> dict:
 # Formato de texto
 # ---------------------------------------------------------------------------
 
-def formatear_reporte_texto(datos: dict) -> str:
+def formatear_reporte_texto(datos: dict, nota: str = "") -> str:
     lineas = [f"REPORTE DEL DÍA — {datos['fecha']}", "=" * 42]
 
     if not datos["sesiones"]:
@@ -162,7 +167,35 @@ def formatear_reporte_texto(datos: dict) -> str:
                 f"— debe en total $ {persona['deuda_historica']:,.0f}"
             )
 
+    if nota.strip():
+        lineas.append("\n" + "-" * 42)
+        lineas.append("NOTA:")
+        lineas.append(f"  {nota.strip()}")
+
     return "\n".join(lineas)
+
+
+def generar_pdf_reporte(texto: str, ruta_destino: str, titulo: str = "Reporte POS"):
+    """
+    Convierte el texto ya formateado del reporte en un PDF, usando las
+    herramientas de impresión que ya trae Qt (QTextDocument + QPrinter) --
+    no hace falta agregar ninguna librería nueva al proyecto solo para esto.
+    """
+    import html as _html
+    texto_escapado = _html.escape(texto)
+    html = (
+        f"<h2 style='font-family: Arial; color: #1F2430;'>{_html.escape(titulo)}</h2>"
+        f"<pre style='font-family: Consolas, monospace; font-size: 11pt; "
+        f"white-space: pre-wrap;'>{texto_escapado}</pre>"
+    )
+
+    documento = QTextDocument()
+    documento.setHtml(html)
+
+    impresora = QPrinter(QPrinter.HighResolution)
+    impresora.setOutputFormat(QPrinter.PdfFormat)
+    impresora.setOutputFileName(ruta_destino)
+    documento.print_(impresora)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +206,7 @@ class WidgetReportes(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._ultimos_datos = None
         self._armar_ui()
 
     def _armar_ui(self):
@@ -194,6 +228,21 @@ class WidgetReportes(QWidget):
         )
         self.texto_reporte.setPlaceholderText("Elige una fecha y presiona \"Generar reporte\" →")
         columna_izquierda.addWidget(self.texto_reporte, stretch=1)
+
+        etiqueta_nota = QLabel("Nota (opcional) — algo que no quedó en el reporte automático:")
+        etiqueta_nota.setStyleSheet("font-size: 12px;")
+        columna_izquierda.addWidget(etiqueta_nota)
+
+        self.campo_nota = QTextEdit()
+        self.campo_nota.setPlaceholderText(
+            "Ej: se rompió la balanza a las 3pm, faltó cargar una venta del turno tarde..."
+        )
+        self.campo_nota.setMaximumHeight(70)
+        self.campo_nota.setStyleSheet(
+            f"QTextEdit {{ border: 1px solid {BORDE}; border-radius: 10px; background: white; }}"
+        )
+        self.campo_nota.textChanged.connect(self._actualizar_texto)
+        columna_izquierda.addWidget(self.campo_nota)
 
         layout_principal.addLayout(columna_izquierda, stretch=2)
 
@@ -262,8 +311,17 @@ class WidgetReportes(QWidget):
 
     def _generar(self):
         fecha = self.selector_fecha.date().toString("yyyy-MM-dd")
-        datos = generar_reporte_dia(fecha)
-        self.texto_reporte.setPlainText(formatear_reporte_texto(datos))
+        self._ultimos_datos = generar_reporte_dia(fecha)
+        self._actualizar_texto()
+
+    def _actualizar_texto(self):
+        """Redibuja el reporte con los últimos datos consultados más la
+        nota actual -- se llama al generar y cada vez que se edita la
+        nota, sin volver a golpear la base de datos."""
+        if self._ultimos_datos is None:
+            return
+        nota = self.campo_nota.toPlainText()
+        self.texto_reporte.setPlainText(formatear_reporte_texto(self._ultimos_datos, nota))
 
     def _recargar_contactos(self):
         """Reconstruye el combo de contactos guardados, tratando de
@@ -328,13 +386,24 @@ class WidgetReportes(QWidget):
         fecha = self.selector_fecha.date().toString("yyyy-MM-dd")
         asunto = f"Reporte POS — {fecha}"
 
+        ruta_pdf = os.path.join(tempfile.gettempdir(), f"reporte_pos_{fecha}.pdf")
+        try:
+            generar_pdf_reporte(texto, ruta_pdf, titulo=f"Reporte del día — {fecha}")
+        except Exception as error:
+            QMessageBox.critical(self, "Error al generar el PDF", str(error))
+            return
+
+        cuerpo = f"Se adjunta el reporte del día {fecha}."
+
         def _resultado(ok, error):
             if ok:
-                QMessageBox.information(self, "Enviado", "El reporte se mandó por correo.")
+                QMessageBox.information(self, "Enviado", "El reporte se mandó por correo en PDF.")
             else:
                 QMessageBox.warning(self, "No se pudo enviar", error or "Error desconocido.")
 
-        disparar_envio_correo(self, destino, asunto, texto, on_resultado=_resultado)
+        disparar_envio_correo(
+            self, destino, asunto, cuerpo, on_resultado=_resultado, ruta_adjunto=ruta_pdf
+        )
 
     def _abrir_configuracion_correo(self):
         DialogoConfiguracionCorreo(self, parent=self).exec()
