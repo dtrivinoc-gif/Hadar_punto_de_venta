@@ -1,24 +1,25 @@
-# Python
+# Archivos y carpetas de Python / Entornos virtuales
 __pycache__/
 *.pyc
-*.pyo
 venv/
-.venv/
 env/
+.env
 
-# Carpetas que no queremos subir
+# Carpetas de compilación y empaquetado
+build/
+dist/
 backups/
 datos/
 
-# Archivos de configuración con datos sensibles
-.env
-*.db
-*.sqlite
-*.sqlite3
+# Archivos de configuración de empaquetado (PyInstaller)
+*.spec
 
-# VS Code
-.vscode/
+# Archivos de imágenes e iconos
+*.ico
+*.png
+*.jpg
+*.jpeg
 
-# Sistema
-Thumbs.db
-.DS_Store 
+# Archivos ejecutables / scripts de compilación
+*.exe
+build.bat

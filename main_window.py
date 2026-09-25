@@ -10,7 +10,12 @@ Une las pantallas en pestañas y conecta las señales entre ellas:
     selector en venta
 """
 
-from PySide6.QtWidgets import QMainWindow, QTabWidget
+import os
+import sys
+
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QLabel
+from PySide6.QtGui import QPixmap
+from PySide6.QtCore import Qt
 
 from config import NOMBRE_APP, NOMBRE_NEGOCIO
 from estilos import estilo_pestanas
@@ -21,6 +26,16 @@ from caja_vecina import WidgetCajaVecina
 from fiado import WidgetFiado
 from reportes import WidgetReportes
 from panel_ajustes import WidgetAjustesGeneral
+
+
+def ruta_recurso(nombre_archivo):
+    """
+    Devuelve la ruta a un archivo dentro de recursos/, ya sea corriendo
+    el script normal o empaquetado como .exe con PyInstaller (donde los
+    archivos quedan en una carpeta temporal apuntada por sys._MEIPASS).
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, "recursos", nombre_archivo)
 
 
 class VentanaPrincipal(QMainWindow):
@@ -65,5 +80,15 @@ class VentanaPrincipal(QMainWindow):
             lambda indice: self.pantalla_fiado.recargar()
             if pestanas.widget(indice) is self.pantalla_fiado else None
         )
+
+        # logo "POS by Hadar" en la esquina superior derecha, al lado de las pestañas
+        logo = QLabel()
+        pixmap = QPixmap(ruta_recurso("hadar_pos_logo_negro_horizontal.png"))
+        if not pixmap.isNull():
+            logo.setPixmap(
+                pixmap.scaledToHeight(40, Qt.SmoothTransformation)
+            )
+        logo.setContentsMargins(0, 0, 12, 0)
+        pestanas.setCornerWidget(logo, Qt.TopRightCorner)
 
         self.setCentralWidget(pestanas)
